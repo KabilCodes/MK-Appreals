@@ -129,7 +129,7 @@ export class SupabaseDbService {
   }
 
   /**
-   * Fetch worker by identifier: profile_id, worker table ID, worker_id code (e.g. MK001), or mobile
+   * Fetch worker by identifier: profile_id, worker table ID, worker_id code, or mobile
    */
   static async getWorkerById(identifier: string): Promise<Worker | null> {
     const client = this.getClient();
@@ -161,7 +161,7 @@ export class SupabaseDbService {
           data = byId;
         }
       } else {
-        // Non-UUID: match worker_id code (e.g. "MK001") without casting error in Postgres
+        // Non-UUID: match alphanumeric worker_id code without casting error in Postgres
         const { data: byCode } = await client
           .from("workers")
           .select("id, profile_id, worker_id, full_name, mobile, operation_id, custom_rate_override, status, created_at, updated_at")
@@ -240,6 +240,111 @@ export class SupabaseDbService {
       }));
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Insert worker record into Supabase
+   */
+  static async insertWorker(worker: Worker): Promise<boolean> {
+    const client = this.getClient();
+    if (!client) return false;
+
+    try {
+      const isUUID = (str?: string) =>
+        Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+
+      let targetOpId = worker.operation_id;
+      if (!isUUID(targetOpId)) {
+        const { data: opData } = await client
+          .from("operations")
+          .select("id")
+          .ilike("name", worker.operation_name || "Overlock")
+          .maybeSingle();
+        if (opData?.id && isUUID(opData.id)) {
+          targetOpId = opData.id;
+        }
+      }
+
+      const payload: Record<string, unknown> = {
+        worker_id: worker.worker_id,
+        full_name: worker.full_name,
+        mobile: worker.mobile,
+        operation_id: targetOpId,
+        custom_rate_override: worker.custom_rate_override ?? null,
+        status: worker.status,
+      };
+
+      if (isUUID(worker.id)) {
+        payload.id = worker.id;
+      }
+      if (worker.profile_id && isUUID(worker.profile_id)) {
+        payload.profile_id = worker.profile_id;
+      }
+
+      const { error } = await client.from("workers").insert(payload);
+      return !error;
+    } catch (err) {
+      console.warn("[SupabaseDbService] insertWorker fallback:", (err as Error).message);
+      return false;
+    }
+  }
+
+  /**
+   * Update worker record in Supabase
+   */
+  static async updateWorker(
+    identifier: string,
+    updates: Partial<{
+      full_name: string;
+      mobile: string;
+      operation_id: string;
+      custom_rate_override: number | null;
+      status: "ACTIVE" | "INACTIVE";
+      profile_id?: string;
+    }>
+  ): Promise<boolean> {
+    const client = this.getClient();
+    if (!client || !identifier) return false;
+
+    try {
+      const isUUID = (str?: string) =>
+        Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+
+      const payload: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (updates.full_name !== undefined) payload.full_name = updates.full_name;
+      if (updates.mobile !== undefined) payload.mobile = updates.mobile;
+      if (updates.profile_id !== undefined && isUUID(updates.profile_id)) payload.profile_id = updates.profile_id;
+      if (updates.custom_rate_override !== undefined) payload.custom_rate_override = updates.custom_rate_override;
+      if (updates.status !== undefined) payload.status = updates.status;
+
+      if (updates.operation_id !== undefined) {
+        let opId = updates.operation_id;
+        if (!isUUID(opId)) {
+          const { data: opData } = await client
+            .from("operations")
+            .select("id")
+            .ilike("name", opId)
+            .maybeSingle();
+          if (opData?.id && isUUID(opData.id)) opId = opData.id;
+        }
+        payload.operation_id = opId;
+      }
+
+      let query = client.from("workers").update(payload);
+      if (isUUID(identifier)) {
+        query = query.eq("id", identifier);
+      } else {
+        query = query.eq("worker_id", identifier.toUpperCase());
+      }
+
+      const { error } = await query;
+      return !error;
+    } catch (err) {
+      console.warn("[SupabaseDbService] updateWorker fallback:", (err as Error).message);
+      return false;
     }
   }
 

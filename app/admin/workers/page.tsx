@@ -99,7 +99,7 @@ export default function AdminWorkersPage() {
 
   const handleOpenCreate = () => {
     setFormData({
-      worker_id: `MK00${workers.length + 1}`,
+      worker_id: "",
       full_name: "",
       mobile: "",
       email: "",
@@ -111,7 +111,7 @@ export default function AdminWorkersPage() {
     setIsCreateOpen(true);
   };
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
@@ -119,7 +119,35 @@ export default function AdminWorkersPage() {
         ? parseFloat(formData.custom_rate_override)
         : null;
 
-      store.createWorker({
+      let authUserId: string | undefined = undefined;
+
+      // Provision Supabase Auth account and remote database records via server API
+      try {
+        const res = await fetch("/api/admin/workers/provision", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            worker_id: formData.worker_id.trim().toUpperCase(),
+            full_name: formData.full_name.trim(),
+            mobile: formData.mobile.trim(),
+            email: formData.email.trim() || undefined,
+            password: formData.password.trim() || undefined,
+            operation_id: formData.operation_id,
+            custom_rate_override: customRate,
+            status: formData.status,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.auth_user_id) {
+            authUserId = data.auth_user_id;
+          }
+        }
+      } catch (provErr) {
+        console.warn("[AdminWorkers] Auth provision fallback:", provErr);
+      }
+
+      const createdWorker = store.createWorker({
         worker_id: formData.worker_id.trim().toUpperCase(),
         full_name: formData.full_name.trim(),
         mobile: formData.mobile.trim(),
@@ -128,7 +156,13 @@ export default function AdminWorkersPage() {
         operation_id: formData.operation_id,
         custom_rate_override: customRate,
         status: formData.status,
+        profile_id: authUserId,
       });
+
+      // Synchronize with remote Supabase database if reachable
+      SupabaseDbService.insertWorker(createdWorker).catch((err) =>
+        console.warn("[AdminWorkers] Supabase worker insert fallback:", err)
+      );
 
       success(`Worker ${formData.full_name} (${formData.worker_id}) created with portal access.`);
       setIsCreateOpen(false);
@@ -154,14 +188,45 @@ export default function AdminWorkersPage() {
     });
   };
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingWorker) return;
+    setIsSubmitting(true);
 
     try {
       const customRate = editFormData.custom_rate_override.trim()
         ? parseFloat(editFormData.custom_rate_override)
         : null;
+
+      let authUserId = editingWorker.profile_id;
+
+      // Provision or update Supabase Auth account and remote database records via server API
+      try {
+        const res = await fetch("/api/admin/workers/provision", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            existingWorkerId: editingWorker.id,
+            worker_id: editingWorker.worker_id,
+            full_name: editFormData.full_name.trim(),
+            mobile: editFormData.mobile.trim(),
+            email: editFormData.email.trim() || undefined,
+            password: editFormData.password.trim() || undefined,
+            operation_id: editFormData.operation_id,
+            custom_rate_override: customRate,
+            status: editFormData.status,
+            profile_id: editingWorker.profile_id,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.auth_user_id) {
+            authUserId = data.auth_user_id;
+          }
+        }
+      } catch (provErr) {
+        console.warn("[AdminWorkers] Auth provision fallback:", provErr);
+      }
 
       store.updateWorker(editingWorker.id, {
         full_name: editFormData.full_name.trim(),
@@ -171,14 +236,29 @@ export default function AdminWorkersPage() {
         operation_id: editFormData.operation_id,
         custom_rate_override: customRate,
         status: editFormData.status,
+        profile_id: authUserId,
       });
 
-      success(`Worker ${editingWorker.worker_id} updated.`);
+      // Synchronize with remote Supabase database if reachable
+      SupabaseDbService.updateWorker(editingWorker.id, {
+        full_name: editFormData.full_name.trim(),
+        mobile: editFormData.mobile.trim(),
+        operation_id: editFormData.operation_id,
+        custom_rate_override: customRate,
+        status: editFormData.status,
+        profile_id: authUserId,
+      }).catch((err) =>
+        console.warn("[AdminWorkers] Supabase worker update fallback:", err)
+      );
+
+      success(`Worker ${editingWorker.worker_id} updated with portal access.`);
       setEditingWorker(null);
       loadData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to update worker";
       error(msg);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -430,7 +510,7 @@ export default function AdminWorkersPage() {
             <Input
               label="Worker Email (For Portal & Google Login)"
               type="email"
-              placeholder="worker@mkappreals.com"
+              placeholder="name@company.com"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             />
@@ -521,7 +601,7 @@ export default function AdminWorkersPage() {
             <Input
               label="Worker Email (For Portal & Google Login)"
               type="email"
-              placeholder="worker@mkappreals.com"
+              placeholder="name@company.com"
               value={editFormData.email}
               onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
             />
@@ -554,6 +634,7 @@ export default function AdminWorkersPage() {
             <Button
               type="submit"
               variant="primary"
+              isLoading={isSubmitting}
               className="bg-navy-900 hover:bg-navy-950 text-white font-bold"
             >
               Update Worker

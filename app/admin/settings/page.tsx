@@ -426,7 +426,7 @@ export default function AdminSettingsPage() {
               required
               value={newAdminEmail}
               onChange={(e) => setNewAdminEmail(e.target.value)}
-              placeholder="admin@mkappreals.com"
+              placeholder="name@company.com"
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#0B1F33]"
             />
           </div>

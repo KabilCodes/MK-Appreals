@@ -72,7 +72,20 @@ export function useWorkerSession(): WorkerSessionState {
         }
       }
 
-      // 3. If user is completely unauthenticated (neither Supabase user nor local session):
+      // 3. Stale session reconciliation
+      // If a local worker session exists, but the browser has a leftover Supabase Auth user for a different email,
+      // invalidate the stale Supabase user so it does not conflict with the current worker.
+      if (
+        supabaseUser &&
+        parsed?.user?.role === "WORKER" &&
+        parsed.user.email &&
+        supabaseUser.email &&
+        supabaseUser.email.toLowerCase() !== parsed.user.email.toLowerCase()
+      ) {
+        supabaseUser = null;
+      }
+
+      // If user is completely unauthenticated (neither Supabase user nor local session):
       if (!supabaseUser && (!parsed || !parsed.user)) {
         router.replace("/login");
         // Keep isLoading true to prevent flashing error screen before navigation
@@ -82,6 +95,14 @@ export function useWorkerSession(): WorkerSessionState {
       // 4. Role Authorization Check
       let role: "ADMIN" | "WORKER" | null = parsed?.user?.role || null;
       if (supabaseUser) {
+        // Direct admin check against registered administrator whitelist
+        if (supabaseUser.email) {
+          const admins = store.getAdmins();
+          if (admins.some((a) => a.email.toLowerCase() === supabaseUser!.email!.toLowerCase())) {
+            role = "ADMIN";
+          }
+        }
+
         try {
           const { data: profile } = await supabase
             .from("profiles")
@@ -139,18 +160,19 @@ export function useWorkerSession(): WorkerSessionState {
         }
 
         // Match by email or Supabase user ID if still not found
-        if (!matchedWorker && supabaseUser?.email) {
+        const targetEmail = parsed?.user?.email || supabaseUser?.email;
+        if (!matchedWorker && targetEmail) {
           const workers = store.getWorkers();
           matchedWorker =
             workers.find(
               (w) =>
-                (w.email && w.email.toLowerCase() === supabaseUser!.email!.toLowerCase()) ||
-                (w.profile_id && w.profile_id === supabaseUser!.id)
+                (w.email && w.email.toLowerCase() === targetEmail.toLowerCase()) ||
+                (w.profile_id && (w.profile_id === supabaseUser?.id || w.profile_id === parsed?.user?.id))
             ) || null;
         }
 
         // Self-healing from authenticated session
-        if (!matchedWorker && parsed?.user) {
+        if (!matchedWorker && parsed?.user && parsed.user.role === "WORKER") {
           matchedWorker = store.ensureWorkerFromSession(parsed.user);
         }
       }
@@ -159,7 +181,10 @@ export function useWorkerSession(): WorkerSessionState {
       if (!matchedWorker) {
         if (isMountedRef.current) {
           setIsProfileMissing(true);
-          setError("Worker profile could not be found for this account. Please check your credentials or contact your supervisor.");
+          const detailMessage = supabaseUser?.email
+            ? `No garment worker profile is linked to "${supabaseUser.email}". Please contact your plant supervisor to enroll your account or sign in with your Worker ID.`
+            : "Worker profile could not be found. Please check your credentials or contact your floor supervisor.";
+          setError(detailMessage);
           setIsLoading(false);
         }
         return;

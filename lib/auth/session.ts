@@ -49,7 +49,48 @@ export async function loginUser(credentials: {
     return { success: true, session: adminSession };
   }
 
-  // 2. Check for Worker Login (by Worker Email, Worker ID e.g. MK001, or mobile number)
+  // 2. Check Supabase Auth first if query is an email and password is provided
+  let authenticatedAuthUser: { id: string; email?: string } | null = null;
+  const client = SupabaseDbService.getClient();
+
+  if (client && query.includes("@") && credentials.password) {
+    try {
+      const { data: authData, error: authErr } = await client.auth.signInWithPassword({
+        email: query,
+        password: credentials.password,
+      });
+
+      if (!authErr && authData?.user) {
+        authenticatedAuthUser = authData.user;
+
+        // Check if this Supabase user has an ADMIN profile
+        const { data: profile } = await client
+          .from("profiles")
+          .select("id, role, full_name, mobile")
+          .eq("id", authData.user.id)
+          .maybeSingle();
+
+        const isAdminEmail = admins.some((a) => a.email.toLowerCase() === query.toLowerCase());
+        if (profile?.role === "ADMIN" || isAdminEmail) {
+          const adminSession: AuthSession = {
+            user: {
+              id: profile?.id || authData.user.id,
+              role: "ADMIN",
+              name: profile?.full_name || "Administrator",
+              email: query,
+            },
+            token: `supabase-admin-${authData.user.id}-${Date.now()}`,
+            rememberMe: credentials.rememberMe ?? false,
+          };
+          return { success: true, session: adminSession };
+        }
+      }
+    } catch {
+      // Supabase sign-in fallback continues
+    }
+  }
+
+  // 3. Resolve Worker Record (by Email, Worker ID, Mobile, or Name)
   const workers = store.getWorkers();
   let worker = workers.find(
     (w) =>
@@ -59,58 +100,32 @@ export async function loginUser(credentials: {
       w.full_name.toLowerCase() === query.toLowerCase()
   );
 
-  // 3. If not found in local store, check Supabase database & auth
-  if (!worker) {
+  // If authenticated via Supabase Auth, attempt remote lookup or link to local record
+  if (authenticatedAuthUser) {
     try {
-      const client = SupabaseDbService.getClient();
-      if (client) {
-        // 3a. If query is an email, attempt Supabase Auth sign-in
-        if (query.includes("@") && credentials.password) {
-          const { data: authData, error: authErr } = await client.auth.signInWithPassword({
-            email: query,
-            password: credentials.password,
-          });
-
-          if (!authErr && authData?.user) {
-            // Check profiles table
-            const { data: profile } = await client
-              .from("profiles")
-              .select("id, role, full_name, mobile")
-              .eq("id", authData.user.id)
-              .maybeSingle();
-
-            if (profile?.role === "ADMIN") {
-              const adminSession: AuthSession = {
-                user: {
-                  id: profile.id,
-                  role: "ADMIN",
-                  name: profile.full_name || "Administrator",
-                  email: query,
-                },
-                token: `supabase-admin-${profile.id}-${Date.now()}`,
-                rememberMe: credentials.rememberMe ?? false,
-              };
-              return { success: true, session: adminSession };
-            }
-
-            // Role is WORKER: fetch worker by auth user ID (profile_id)
-            const dbWorker = await SupabaseDbService.getWorkerForAuthUser(authData.user.id, query);
-            if (dbWorker) {
-              worker = dbWorker;
-            }
-          }
-        }
-
-        // 3b. If still not found, check Supabase workers table by worker_id or mobile
-        if (!worker) {
-          const dbWorker = await SupabaseDbService.getWorkerById(query);
-          if (dbWorker) {
-            worker = dbWorker;
-          }
-        }
+      const dbWorker = await SupabaseDbService.getWorkerForAuthUser(authenticatedAuthUser.id, query);
+      if (dbWorker) {
+        worker = dbWorker;
       }
     } catch {
-      // Supabase unavailable, fallback continues
+      // continue with local worker
+    }
+
+    if (worker && !worker.profile_id) {
+      worker.profile_id = authenticatedAuthUser.id;
+      store.updateWorker(worker.id, { profile_id: authenticatedAuthUser.id });
+    }
+  }
+
+  // If still not found, check Supabase workers table by worker_id or mobile
+  if (!worker && client) {
+    try {
+      const dbWorker = await SupabaseDbService.getWorkerById(query);
+      if (dbWorker) {
+        worker = dbWorker;
+      }
+    } catch {
+      // fallback
     }
   }
 
@@ -128,11 +143,42 @@ export async function loginUser(credentials: {
     };
   }
 
-  if (worker.password && credentials.password?.trim() !== worker.password) {
-    return {
-      success: false,
-      error: "Invalid worker password. Please check your credentials.",
-    };
+  // Validate password (if not already verified by Supabase Auth)
+  if (!authenticatedAuthUser) {
+    if (worker.password && credentials.password?.trim() !== worker.password) {
+      return {
+        success: false,
+        error: "Invalid worker password. Please check your credentials.",
+      };
+    }
+
+    // Attempt to establish Supabase Auth session if worker has an email and password
+    if (client && worker.email && credentials.password) {
+      try {
+        const { data: authData } = await client.auth.signInWithPassword({
+          email: worker.email,
+          password: credentials.password.trim(),
+        });
+        if (authData?.user) {
+          authenticatedAuthUser = authData.user;
+          if (!worker.profile_id) {
+            worker.profile_id = authData.user.id;
+            store.updateWorker(worker.id, { profile_id: authData.user.id });
+          }
+        }
+      } catch {
+        // Fallback continues
+      }
+    }
+
+    // If Supabase session is not established for this worker, clear any leftover session
+    if (!authenticatedAuthUser && client) {
+      try {
+        await client.auth.signOut();
+      } catch {
+        // Ignore
+      }
+    }
   }
 
   const op = store.getOperationById(worker.operation_id);
@@ -140,7 +186,7 @@ export async function loginUser(credentials: {
 
   const workerSession: AuthSession = {
     user: {
-      id: worker.profile_id || worker.id,
+      id: authenticatedAuthUser?.id || worker.profile_id || worker.id,
       worker_db_id: worker.id,
       role: "WORKER",
       name: worker.full_name,

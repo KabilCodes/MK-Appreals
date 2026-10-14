@@ -5,7 +5,7 @@ export const WorkerCreateSchema = z.object({
     .string()
     .min(2, "Worker ID must be at least 2 characters")
     .max(20, "Worker ID cannot exceed 20 characters")
-    .regex(/^[A-Z0-9_-]+$/, "Worker ID must contain only uppercase letters, digits, dashes or underscores (e.g. MK001)"),
+    .regex(/^[A-Z0-9_-]+$/, "Worker ID must contain only uppercase letters, digits, dashes or underscores"),
   full_name: z
     .string()
     .min(2, "Worker name must be at least 2 characters")
@@ -23,10 +23,13 @@ export const WorkerCreateSchema = z.object({
     .min(0, "Rate cannot be negative")
     .optional()
     .nullable(),
+  email: z.string().email("Invalid email format").optional().or(z.literal("")),
   password: z
     .string()
     .min(4, "Worker login password/PIN must be at least 4 characters")
-    .max(50),
+    .max(50)
+    .optional()
+    .or(z.literal("")),
   status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),
 });
 
@@ -34,10 +37,11 @@ export const WorkerUpdateSchema = z.object({
   id: z.string().min(1),
   full_name: z.string().min(2).max(100).optional(),
   mobile: z.string().min(10).max(15).optional(),
+  email: z.string().email("Invalid email format").optional().or(z.literal("")),
   operation_id: z.string().min(1).optional(),
   custom_rate_override: z.number().min(0).optional().nullable(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
-  new_password: z.string().min(4).max(50).optional(),
+  new_password: z.string().min(4).max(50).optional().or(z.literal("")),
 });
 
 export type WorkerCreateInput = z.infer<typeof WorkerCreateSchema>;

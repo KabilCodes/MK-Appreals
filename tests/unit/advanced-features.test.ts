@@ -1,8 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { store } from "@/lib/db/store";
 import { loginUser, loginWithGoogle, requestPasswordReset, confirmPasswordReset } from "@/lib/auth/session";
 
 describe("Advanced Authentication, Admin Management & Core Workflows", () => {
+  beforeEach(() => {
+    store.seedTestFixtures();
+  });
   // 1. Admin Credentials & Google OAuth Role Whitelisting
   describe("Admin Authentication & Role Authorization (Section 44-45)", () => {
     it("authenticates primary admin mkarun@gmail.com with correct password arun1987", async () => {

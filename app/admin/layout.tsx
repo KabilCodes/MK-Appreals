@@ -7,6 +7,7 @@ import { getRecentWeeks } from "@/lib/utils/date";
 import { GlobalSearchModal } from "@/components/shared/GlobalSearchModal";
 import { Sidebar } from "@/components/shared/Sidebar";
 import { Topbar } from "@/components/shared/Topbar";
+import { createClient } from "@/lib/supabase/client";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -51,7 +52,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   }, [router]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } catch {
+      // Ignore
+    }
     localStorage.removeItem("mk_session");
     router.push("/login");
   };

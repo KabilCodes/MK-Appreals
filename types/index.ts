@@ -50,7 +50,7 @@ export interface RateHistory {
 export interface Worker {
   id: string;
   profile_id?: string;
-  worker_id: string; // e.g. "MK001"
+  worker_id: string; // Worker alphanumeric code
   full_name: string;
   mobile: string;
   email?: string;
@@ -112,7 +112,7 @@ export interface SalaryPayment {
 export interface WeeklySalary {
   id: string;
   worker_id: string;
-  worker_id_code?: string; // MK001
+  worker_id_code?: string; // Alphanumeric code
   worker_name?: string;
   operation_name?: string;
   current_rate?: number;
@@ -195,7 +195,7 @@ export interface AuthSession {
     role: UserRole;
     name: string;
     email?: string;
-    worker_id?: string; // e.g. "MK001" if WORKER
+    worker_id?: string; // Alphanumeric code if WORKER
     worker_db_id?: string;
     operation_id?: string;
     operation_name?: string;

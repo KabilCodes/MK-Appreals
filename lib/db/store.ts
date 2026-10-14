@@ -80,15 +80,35 @@ class DataStore {
     );
   }
 
+  private isDemoWorker(w: any): boolean {
+    if (!w) return false;
+    const demoIds = ["w-kumar", "w-ravi", "w-mani", "w-suresh", "w-arun"];
+    const demoCodes = ["MK001", "MK002", "MK003", "MK004", "MK005"];
+    const demoEmails = [
+      "kumar@mkappreals.com",
+      "ravi@mkappreals.com",
+      "mani@mkappreals.com",
+      "suresh@mkappreals.com",
+      "arun@mkappreals.com",
+    ];
+    const id = String(w.id || "").toLowerCase();
+    const workerId = String(w.worker_id || "").toUpperCase();
+    const email = String(w.email || "").toLowerCase();
+
+    return demoIds.includes(id) || demoCodes.includes(workerId) || demoEmails.includes(email);
+  }
+
   private loadFromStorage(): boolean {
     if (typeof window === "undefined" || process.env.NODE_ENV === "test") return false;
     try {
       const raw = localStorage.getItem(this.storageKey);
       if (!raw) return false;
       const data = JSON.parse(raw);
-      if (data && Array.isArray(data.workers) && data.workers.length > 0) {
+      if (data) {
         if (Array.isArray(data.operations) && data.operations.length > 0) this.operations = data.operations;
-        this.workers = data.workers;
+        if (Array.isArray(data.workers)) {
+          this.workers = data.workers.filter((w: any) => !this.isDemoWorker(w));
+        }
         if (Array.isArray(data.rateHistory)) this.rateHistory = data.rateHistory;
         if (Array.isArray(data.productionEntries)) {
           this.productionEntries = data.productionEntries.filter((e: any) => !this.isSeedEntry(e.id));
@@ -99,7 +119,27 @@ class DataStore {
         if (Array.isArray(data.auditLogs)) {
           this.auditLogs = data.auditLogs.filter((a: any) => !a.id.startsWith("al-"));
         }
-        if (Array.isArray(data.admins) && data.admins.length > 0) this.admins = data.admins;
+        if (Array.isArray(data.admins) && data.admins.length > 0) {
+          this.admins = data.admins.filter(
+            (a: any) =>
+              a.id !== "adm-01" &&
+              a.id !== "adm-02" &&
+              a.email !== "admin@mkappreals.com" &&
+              a.email !== "supervisor@mkappreals.com"
+          );
+          if (!this.admins.some((a) => a.email.toLowerCase() === "mkarun@gmail.com")) {
+            this.admins.unshift({
+              id: "adm-arun",
+              full_name: "MK Arun",
+              email: "mkarun@gmail.com",
+              role: "ADMIN",
+              status: "ACTIVE",
+              password: "arun1987",
+              created_at: "2026-01-01T00:00:00Z",
+              last_login: new Date().toISOString(),
+            });
+          }
+        }
         if (Array.isArray(data.correctionRequests)) this.correctionRequests = data.correctionRequests;
         if (Array.isArray(data.notifications)) this.notifications = data.notifications;
         if (data.settings) this.settings = data.settings;
@@ -130,7 +170,7 @@ class DataStore {
       created_at: "2026-01-01T00:00:00Z",
     }));
 
-    // Seed Authorized Administrators (Section 44)
+    // Authorized Administrator (Sole primary administrator)
     this.admins = [
       {
         id: "adm-arun",
@@ -142,31 +182,11 @@ class DataStore {
         created_at: "2026-01-01T00:00:00Z",
         last_login: new Date().toISOString(),
       },
-      {
-        id: "adm-01",
-        full_name: "Factory Administrator",
-        email: "admin@mkappreals.com",
-        role: "ADMIN",
-        status: "ACTIVE",
-        password: "arun1987",
-        created_at: "2026-01-01T00:00:00Z",
-        last_login: new Date().toISOString(),
-      },
-      {
-        id: "adm-02",
-        full_name: "Production Shift Supervisor",
-        email: "supervisor@mkappreals.com",
-        role: "ADMIN",
-        status: "ACTIVE",
-        password: "arun1987",
-        created_at: "2026-01-10T00:00:00Z",
-        last_login: new Date(Date.now() - 3600000).toISOString(),
-      },
     ];
 
     const loaded = this.loadFromStorage();
     if (!loaded) {
-      this.workers = JSON.parse(JSON.stringify(INITIAL_WORKERS));
+      this.workers = [];
       this.productionEntries = [];
       this.weeklySalaries = [];
       this.auditLogs = [];
@@ -223,6 +243,30 @@ class DataStore {
     this.productionEntries = seed.production_entries;
     this.weeklySalaries = seed.weekly_salaries;
     this.auditLogs = seed.audit_logs;
+    if (!this.admins.some((a) => a.email === "admin@mkappreals.com")) {
+      this.admins.push(
+        {
+          id: "adm-01",
+          full_name: "Factory Administrator",
+          email: "admin@mkappreals.com",
+          role: "ADMIN",
+          status: "ACTIVE",
+          password: "arun1987",
+          created_at: "2026-01-01T00:00:00Z",
+          last_login: new Date().toISOString(),
+        },
+        {
+          id: "adm-02",
+          full_name: "Production Shift Supervisor",
+          email: "supervisor@mkappreals.com",
+          role: "ADMIN",
+          status: "ACTIVE",
+          password: "arun1987",
+          created_at: "2026-01-10T00:00:00Z",
+          last_login: new Date(Date.now() - 3600000).toISOString(),
+        }
+      );
+    }
   }
 
   /**
@@ -448,12 +492,15 @@ class DataStore {
       (user.operation_id && this.getOperationById(user.operation_id)) ||
       this.operations[0];
 
+    const fallbackWorkerId =
+      user.worker_id || `W-${(user.id || String(Date.now())).slice(-4).toUpperCase()}`;
+
     const newWorker: Worker = {
       id: user.worker_db_id || user.id || `w-${Date.now()}`,
-      worker_id: user.worker_id || "MK001",
+      worker_id: fallbackWorkerId,
       full_name: user.name || "Factory Worker",
       email: user.email,
-      mobile: "9876543201",
+      mobile: "",
       operation_id: op?.id || "op-overlock",
       operation_name: user.operation_name || op?.name || "Overlock",
       custom_rate_override: user.current_rate ?? null,
@@ -474,6 +521,7 @@ class DataStore {
     operation_id: string;
     custom_rate_override?: number | null;
     status?: "ACTIVE" | "INACTIVE";
+    profile_id?: string;
   }): Worker {
     const exists = this.workers.find(
       (w) => w.worker_id.toUpperCase() === data.worker_id.toUpperCase()
@@ -497,6 +545,7 @@ class DataStore {
 
     const newWorker: Worker = {
       id: `w-${data.worker_id.toLowerCase()}-${Date.now()}`,
+      profile_id: data.profile_id || undefined,
       worker_id: data.worker_id.toUpperCase(),
       full_name: data.full_name,
       mobile: data.mobile,
@@ -541,6 +590,7 @@ class DataStore {
       operation_id: string;
       custom_rate_override: number | null;
       status: "ACTIVE" | "INACTIVE";
+      profile_id?: string;
     }>
   ): Worker {
     const worker = this.workers.find((w) => w.id === id || w.worker_id === id);
@@ -552,6 +602,7 @@ class DataStore {
 
     if (updates.full_name !== undefined) worker.full_name = updates.full_name;
     if (updates.mobile !== undefined) worker.mobile = updates.mobile;
+    if (updates.profile_id !== undefined) worker.profile_id = updates.profile_id;
     if (updates.email !== undefined) {
       const emailTrim = updates.email?.trim().toLowerCase();
       if (emailTrim) {

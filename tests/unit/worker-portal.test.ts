@@ -163,4 +163,74 @@ describe("Worker Portal End-to-End Reliability & Fix Verification", () => {
       expect(res.error).toBe("Invalid Worker ID, Email, or Mobile Number. Please check your credentials.");
     });
   });
+
+  describe("5. Admin Worker Update & Worker Portal End-to-End Flow", () => {
+    it("allows admin to update worker email and password, and worker immediately logs in and submits pieces", async () => {
+      // 1. Admin creates a new worker
+      const worker = store.createWorker({
+        worker_id: "W-TEST-99",
+        full_name: "Test Operator 99",
+        mobile: "9988776655",
+        operation_id: "op-overlock",
+        custom_rate_override: 2.5,
+        status: "ACTIVE",
+      });
+      expect(worker.worker_id).toBe("W-TEST-99");
+
+      // 2. Admin edits worker: assigns email and login password
+      const updated = store.updateWorker(worker.id, {
+        email: "operator99@factory.com",
+        password: "securepass123",
+      });
+      expect(updated.email).toBe("operator99@factory.com");
+      expect(updated.password).toBe("securepass123");
+
+      // 3. Worker signs in using the configured email and password
+      const loginRes = await loginUser({
+        usernameOrId: "operator99@factory.com",
+        password: "securepass123",
+      });
+      expect(loginRes.success).toBe(true);
+      expect(loginRes.session?.user.role).toBe("WORKER");
+      expect(loginRes.session?.user.worker_id).toBe("W-TEST-99");
+      expect(loginRes.session?.user.name).toBe("Test Operator 99");
+
+      // 4. Worker submits daily pieces
+      const { entry, updatedSalary } = ProductionService.submitPieces({
+        worker_id: worker.id,
+        piece_count: 200,
+        production_date: new Date().toISOString().slice(0, 10),
+      });
+      expect(entry.piece_count).toBe(200);
+      expect(entry.calculated_earning).toBe(500); // 200 * 2.50
+      expect(updatedSalary.total_pieces).toBeGreaterThanOrEqual(200);
+
+      // 5. Worker checks weekly salary settlements
+      const workerSalaries = store.getWeeklySalaries(undefined, worker.id);
+      expect(workerSalaries.length).toBeGreaterThanOrEqual(1);
+      expect(workerSalaries[0].calculated_amount).toBeGreaterThanOrEqual(500);
+    });
+
+    it("rejects login if incorrect password is used for the updated worker", async () => {
+      const worker = store.createWorker({
+        worker_id: "W-TEST-99",
+        full_name: "Test Operator 99",
+        mobile: "9988776655",
+        operation_id: "op-overlock",
+        custom_rate_override: 2.5,
+        status: "ACTIVE",
+      });
+      store.updateWorker(worker.id, {
+        email: "operator99@factory.com",
+        password: "securepass123",
+      });
+
+      const loginRes = await loginUser({
+        usernameOrId: "operator99@factory.com",
+        password: "wrongpassword",
+      });
+      expect(loginRes.success).toBe(false);
+      expect(loginRes.error).toContain("Invalid worker password");
+    });
+  });
 });
