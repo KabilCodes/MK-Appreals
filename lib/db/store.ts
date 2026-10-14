@@ -41,9 +41,56 @@ class DataStore {
   };
   private submissionTimestamps: Map<string, number> = new Map();
   private initialized = false;
+  private storageKey = "mk_appreals_store_v1";
 
   constructor() {
     this.init();
+  }
+
+  private persist(): void {
+    if (typeof window === "undefined" || process.env.NODE_ENV === "test") return;
+    try {
+      const state = {
+        operations: this.operations,
+        workers: this.workers,
+        rateHistory: this.rateHistory,
+        productionEntries: this.productionEntries,
+        weeklySalaries: this.weeklySalaries,
+        auditLogs: this.auditLogs,
+        admins: this.admins,
+        correctionRequests: this.correctionRequests,
+        notifications: this.notifications,
+        settings: this.settings,
+      };
+      localStorage.setItem(this.storageKey, JSON.stringify(state));
+    } catch {
+      // Ignore quota errors in storage
+    }
+  }
+
+  private loadFromStorage(): boolean {
+    if (typeof window === "undefined" || process.env.NODE_ENV === "test") return false;
+    try {
+      const raw = localStorage.getItem(this.storageKey);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      if (data && Array.isArray(data.workers) && data.workers.length > 0) {
+        if (Array.isArray(data.operations) && data.operations.length > 0) this.operations = data.operations;
+        this.workers = data.workers;
+        if (Array.isArray(data.rateHistory)) this.rateHistory = data.rateHistory;
+        if (Array.isArray(data.productionEntries)) this.productionEntries = data.productionEntries;
+        if (Array.isArray(data.weeklySalaries)) this.weeklySalaries = data.weeklySalaries;
+        if (Array.isArray(data.auditLogs)) this.auditLogs = data.auditLogs;
+        if (Array.isArray(data.admins) && data.admins.length > 0) this.admins = data.admins;
+        if (Array.isArray(data.correctionRequests)) this.correctionRequests = data.correctionRequests;
+        if (Array.isArray(data.notifications)) this.notifications = data.notifications;
+        if (data.settings) this.settings = data.settings;
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   private init() {
@@ -99,13 +146,26 @@ class DataStore {
       },
     ];
 
-    // Clean initial factory floor state: Zero demo workers, zero fake entries, zero fake salaries
-    this.workers = [];
-    this.productionEntries = [];
-    this.weeklySalaries = [];
-    this.auditLogs = [];
-    this.correctionRequests = [];
-    this.notifications = [];
+    const loaded = this.loadFromStorage();
+    if (!loaded) {
+      if (process.env.NODE_ENV !== "test") {
+        this.workers = JSON.parse(JSON.stringify(INITIAL_WORKERS));
+        const seed = generateSeedData();
+        this.productionEntries = seed.production_entries;
+        this.weeklySalaries = seed.weekly_salaries;
+        this.auditLogs = seed.audit_logs;
+        this.correctionRequests = [];
+        this.notifications = [];
+        this.persist();
+      } else {
+        this.workers = [];
+        this.productionEntries = [];
+        this.weeklySalaries = [];
+        this.auditLogs = [];
+        this.correctionRequests = [];
+        this.notifications = [];
+      }
+    }
 
     this.initialized = true;
   }
@@ -261,12 +321,16 @@ class DataStore {
     const targetWeekId = week_id || currentWeek.week_id;
     const todayISO = formatDateISO(today);
 
+    this.ensureWeekRecordsExist(targetWeekId);
+
     return this.workers.map((w) => {
       const op = this.operations.find((o) => o.id === w.operation_id);
       const effectiveRate = w.custom_rate_override ?? op?.current_rate ?? 0;
 
-      // Filter entries for this worker
-      const workerEntries = this.productionEntries.filter((e) => e.worker_id === w.id);
+      // Filter entries for this worker (matching both id and worker_id)
+      const workerEntries = this.productionEntries.filter(
+        (e) => e.worker_id === w.id || e.worker_id === w.worker_id
+      );
       
       // Today's stats
       const todayEntries = workerEntries.filter((e) => e.production_date === todayISO);
@@ -275,11 +339,19 @@ class DataStore {
 
       // Weekly stats
       const weeklySalary = this.weeklySalaries.find(
-        (ws) => ws.worker_id === w.id && ws.week_id === targetWeekId
+        (ws) => (ws.worker_id === w.id || ws.worker_id === w.worker_id) && ws.week_id === targetWeekId
       );
 
-      const weekPcs = weeklySalary?.total_pieces ?? 0;
-      const weekEarn = weeklySalary?.final_salary ?? weeklySalary?.calculated_amount ?? 0;
+      // Fallback calculation directly from week entries if weeklySalary was newly instantiated
+      const weekBounds = getWeekBounds(today);
+      const weekEntries = workerEntries.filter(
+        (e) => e.production_date >= weekBounds.start_date && e.production_date <= weekBounds.end_date
+      );
+      const computedWeekPcs = weekEntries.reduce((acc, e) => acc + e.piece_count, 0);
+      const computedWeekEarn = weekEntries.reduce((acc, e) => acc + e.calculated_earning, 0);
+
+      const weekPcs = weeklySalary?.total_pieces ?? computedWeekPcs;
+      const weekEarn = weeklySalary?.final_salary ?? weeklySalary?.calculated_amount ?? computedWeekEarn;
       const salaryStatus = weeklySalary?.status ?? "PENDING";
 
       return {
@@ -287,22 +359,66 @@ class DataStore {
         operation_name: op?.name || "Unassigned",
         current_rate: effectiveRate,
         today_pieces: todayPcs,
-        today_earnings: todayEarn,
+        today_earnings: Math.round(todayEarn * 100) / 100,
         this_week_pieces: weekPcs,
-        this_week_earnings: weekEarn,
+        this_week_earnings: Math.round(weekEarn * 100) / 100,
         salary_status: salaryStatus,
       };
     });
   }
 
   public getWorkerById(id: string): Worker | undefined {
-    const w = this.workers.find((item) => item.id === id || item.worker_id === id);
+    if (!id) return undefined;
+    const q = id.trim().toLowerCase();
+    const w = this.workers.find(
+      (item) =>
+        item.id === id ||
+        item.worker_id.toLowerCase() === q ||
+        (item.profile_id && item.profile_id === id) ||
+        (item.email && item.email.toLowerCase() === q) ||
+        item.mobile === id ||
+        item.full_name.toLowerCase() === q
+    );
     if (!w) return undefined;
     const op = this.operations.find((o) => o.id === w.operation_id);
     return {
       ...w,
-      operation_name: op?.name || "Unassigned",
+      operation_name: op?.name || w.operation_name || "Unassigned",
     };
+  }
+
+  public ensureWorkerFromSession(user: {
+    id: string;
+    worker_db_id?: string;
+    worker_id?: string;
+    name?: string;
+    email?: string;
+    operation_id?: string;
+    operation_name?: string;
+    current_rate?: number;
+  }): Worker {
+    const existing = this.getWorkerById(user.worker_db_id || user.worker_id || user.id);
+    if (existing) return existing;
+
+    const op =
+      (user.operation_id && this.getOperationById(user.operation_id)) ||
+      this.operations[0];
+
+    const newWorker: Worker = {
+      id: user.worker_db_id || user.id || `w-${Date.now()}`,
+      worker_id: user.worker_id || "MK001",
+      full_name: user.name || "Factory Worker",
+      email: user.email,
+      mobile: "9876543201",
+      operation_id: op?.id || "op-overlock",
+      operation_name: user.operation_name || op?.name || "Overlock",
+      custom_rate_override: user.current_rate ?? null,
+      status: "ACTIVE",
+      created_at: new Date().toISOString(),
+    };
+    this.workers.push(newWorker);
+    this.persist();
+    return newWorker;
   }
 
   public createWorker(data: {
@@ -367,6 +483,7 @@ class DataStore {
       },
     });
 
+    this.persist();
     return newWorker;
   }
 
@@ -433,6 +550,7 @@ class DataStore {
       new_values: { ...worker, password: worker.password ? "[PROTECTED]" : undefined },
     });
 
+    this.persist();
     return { ...worker };
   }
 
@@ -531,7 +649,7 @@ class DataStore {
       // Re-sum all entries in this week to guarantee exactness
       const weekEntries = this.productionEntries.filter(
         (e) =>
-          e.worker_id === worker.id &&
+          (e.worker_id === worker.id || e.worker_id === worker.worker_id) &&
           e.production_date >= weekBounds.start_date &&
           e.production_date <= weekBounds.end_date
       );
@@ -549,6 +667,7 @@ class DataStore {
       salary.updated_at = new Date().toISOString();
     }
 
+    this.persist();
     return { entry: newEntry, updatedSalary: salary };
   }
 
@@ -594,21 +713,35 @@ class DataStore {
   public getWeeklySalaries(week_id?: string, worker_id?: string): WeeklySalary[] {
     const today = new Date();
     const currentWeek = getWeekBounds(today);
-    const targetWeekId = week_id || currentWeek.week_id;
 
-    // Make sure all active workers have a weekly salary entry for this week
-    this.ensureWeekRecordsExist(targetWeekId);
-
-    let list = this.weeklySalaries.filter((ws) => ws.week_id === targetWeekId);
-
-    if (worker_id) {
-      const w = this.getWorkerById(worker_id);
-      if (w) {
-        list = list.filter((ws) => ws.worker_id === w.id);
+    if (week_id && week_id !== "ALL") {
+      this.ensureWeekRecordsExist(week_id);
+      let list = this.weeklySalaries.filter((ws) => ws.week_id === week_id);
+      if (worker_id) {
+        const w = this.getWorkerById(worker_id);
+        if (w) {
+          list = list.filter((ws) => ws.worker_id === w.id || ws.worker_id === w.worker_id);
+        }
       }
+      return list;
     }
 
-    return list;
+    // week_id is not specified: ensure current week exists
+    this.ensureWeekRecordsExist(currentWeek.week_id);
+
+    if (worker_id) {
+      // Worker portal or worker detail view: return full history for worker with current week at index 0
+      const w = this.getWorkerById(worker_id);
+      let list = this.weeklySalaries;
+      if (w) {
+        list = list.filter((ws) => ws.worker_id === w.id || ws.worker_id === w.worker_id);
+      }
+      // Sort descending by week_id so current week is first, followed by historical settlements
+      return [...list].sort((a, b) => b.week_id.localeCompare(a.week_id));
+    }
+
+    // General call without week_id and without worker_id (e.g. Admin Dashboard):
+    return this.weeklySalaries.filter((ws) => ws.week_id === currentWeek.week_id);
   }
 
   private ensureWeekRecordsExist(targetWeekId: string) {
@@ -704,6 +837,7 @@ class DataStore {
       },
     });
 
+    this.persist();
     return { ...salary };
   }
 
@@ -745,6 +879,7 @@ class DataStore {
       },
     });
 
+    this.persist();
     return { ...salary };
   }
 

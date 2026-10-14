@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { ProductionEntry, CorrectionRequest } from "@/types";
 import { store } from "@/lib/db/store";
+import { SupabaseDbService } from "@/services/supabase-db.service";
 import { formatCurrency, formatRate } from "@/lib/utils/currency";
 import { formatDateDisplay } from "@/lib/utils/date";
 import { Scissors, FileEdit, CheckCircle2, AlertCircle } from "lucide-react";
@@ -27,7 +28,7 @@ export default function WorkerHistoryPage() {
   const [correctionReason, setCorrectionReason] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  const loadData = useCallback(() => {
+  const loadData = useCallback(async () => {
     if (!worker) return;
     const workerEntries = store.getProductionEntries({
       worker_id: worker.id,
@@ -36,6 +37,15 @@ export default function WorkerHistoryPage() {
 
     const allCorrections = store.getCorrectionRequests();
     setCorrections(allCorrections.filter((c) => c.worker_id === worker.id));
+
+    try {
+      const remoteEntries = await SupabaseDbService.getProductionEntries(worker.id);
+      if (remoteEntries && remoteEntries.length > 0) {
+        setEntries(remoteEntries);
+      }
+    } catch {
+      // Fallback to store
+    }
   }, [worker]);
 
   useEffect(() => {

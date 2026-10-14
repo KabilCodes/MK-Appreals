@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/toast";
 import { formatCurrency, formatRate, calculateEarnings } from "@/lib/utils/currency";
 import { formatDateDisplay, formatDateISO } from "@/lib/utils/date";
 import { store } from "@/lib/db/store";
+import { ProductionService } from "@/services/production.service";
 import {
   Scissors,
   TrendingUp,
@@ -104,7 +105,7 @@ export default function WorkerHomePage() {
     setIsSubmitting(true);
 
     try {
-      store.submitPieceEntry({
+      ProductionService.submitPieces({
         worker_id: worker.id,
         piece_count: parsedPieceCount,
         production_date: formatDateISO(new Date()),

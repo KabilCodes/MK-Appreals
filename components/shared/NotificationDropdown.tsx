@@ -10,9 +10,10 @@ import { formatDateDisplay } from "@/lib/utils/date";
 interface NotificationDropdownProps {
   role?: UserRole;
   userId?: string;
+  variant?: "light" | "dark";
 }
 
-export function NotificationDropdown({ role = "ADMIN", userId }: NotificationDropdownProps) {
+export function NotificationDropdown({ role = "ADMIN", userId, variant = "light" }: NotificationDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
@@ -45,7 +46,11 @@ export function NotificationDropdown({ role = "ADMIN", userId }: NotificationDro
       {/* Bell Trigger */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+        className={
+          variant === "dark"
+            ? "relative p-2 rounded-xl text-charcoal-300 hover:text-white hover:bg-navy-800 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center border border-navy-800 hover:border-navy-700"
+            : "relative p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+        }
         title="Notifications"
       >
         <Bell className="h-4 w-4" />

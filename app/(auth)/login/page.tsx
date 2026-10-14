@@ -221,6 +221,37 @@ export default function LoginPage() {
               </label>
             </div>
 
+            {/* Quick Test Credentials */}
+            <div className="pt-1">
+              <span className="text-[10px] text-charcoal-400 font-bold uppercase tracking-wider block mb-1">
+                Quick Fill Demo
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIdentifier("mkarun@gmail.com");
+                    setPassword("arun1987");
+                  }}
+                  className="py-1.5 px-2 rounded-lg bg-navy-50 hover:bg-navy-100 border border-navy-200 text-navy-900 text-left transition-colors"
+                >
+                  <span className="text-[11px] font-bold block">Admin</span>
+                  <span className="text-[9px] text-charcoal-500 font-mono block">mkarun@gmail.com</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIdentifier("MK001");
+                    setPassword("worker123");
+                  }}
+                  className="py-1.5 px-2 rounded-lg bg-gold-50 hover:bg-gold-100 border border-gold-200 text-gold-900 text-left transition-colors"
+                >
+                  <span className="text-[11px] font-bold block">Worker</span>
+                  <span className="text-[9px] text-charcoal-500 font-mono block">MK001 (Kumar)</span>
+                </button>
+              </div>
+            </div>
+
             {/* Primary Sign In Button */}
             <Button
               type="submit"

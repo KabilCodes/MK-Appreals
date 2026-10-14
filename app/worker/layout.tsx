@@ -55,6 +55,7 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
                 <NotificationDropdown
                   role="WORKER"
                   userId={worker.id}
+                  variant="dark"
                 />
               </>
             )}

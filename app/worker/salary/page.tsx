@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { WeeklySalary } from "@/types";
 import { store } from "@/lib/db/store";
+import { SupabaseDbService } from "@/services/supabase-db.service";
 import { formatCurrency, formatRate } from "@/lib/utils/currency";
 import { formatDateDisplay } from "@/lib/utils/date";
 import { StatusBadge } from "@/components/ui/badge";
@@ -16,10 +17,19 @@ export default function WorkerSalaryPage() {
   const { worker, currentRate, isLoading, error, refresh, logout } = useWorkerSession();
   const [salaries, setSalaries] = useState<WeeklySalary[]>([]);
 
-  const loadSalaries = useCallback(() => {
+  const loadSalaries = useCallback(async () => {
     if (!worker) return;
     const workerSalaries = store.getWeeklySalaries(undefined, worker.id);
     setSalaries(workerSalaries);
+
+    try {
+      const remoteSalaries = await SupabaseDbService.getWeeklySalaries(worker.id);
+      if (remoteSalaries && remoteSalaries.length > 0) {
+        setSalaries(remoteSalaries);
+      }
+    } catch {
+      // Fallback to store
+    }
   }, [worker]);
 
   useEffect(() => {

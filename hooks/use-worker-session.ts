@@ -82,7 +82,12 @@ export function useWorkerSession(): WorkerSessionState {
       // 1. Resolve Worker Identity from Database
       const workerLookupId =
         parsed.user.worker_db_id || parsed.user.worker_id || parsed.user.id;
-      const matchedWorker = store.getWorkerById(workerLookupId);
+      let matchedWorker = store.getWorkerById(workerLookupId);
+
+      // Self-healing: If not found in current store, re-hydrate from authenticated session
+      if (!matchedWorker && parsed.user.worker_id) {
+        matchedWorker = store.ensureWorkerFromSession(parsed.user);
+      }
 
       if (!matchedWorker) {
         setIsProfileMissing(true);
