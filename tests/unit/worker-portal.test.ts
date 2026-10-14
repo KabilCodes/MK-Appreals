@@ -136,5 +136,31 @@ describe("Worker Portal End-to-End Reliability & Fix Verification", () => {
       // insertResult may be false if tables not migrated, but does NOT throw exception
       expect(typeof insertResult).toBe("boolean");
     });
+
+    it("handles getWorkerForAuthUser safely with valid and invalid UUIDs", async () => {
+      const validUuid = "12345678-1234-1234-1234-123456789abc";
+      const res = await SupabaseDbService.getWorkerForAuthUser(validUuid);
+      expect(res === null || typeof res === "object").toBe(true);
+
+      const nonUuid = "invalid-not-a-uuid";
+      const res2 = await SupabaseDbService.getWorkerForAuthUser(nonUuid);
+      expect(res2 === null || typeof res2 === "object").toBe(true);
+    });
+
+    it("handles getWorkerById safely with both code strings and UUIDs without SQL casting errors", async () => {
+      // String code like MK001
+      const resCode = await SupabaseDbService.getWorkerById("MK001");
+      expect(resCode === null || typeof resCode === "object").toBe(true);
+
+      // UUID format
+      const resUuid = await SupabaseDbService.getWorkerById("a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d");
+      expect(resUuid === null || typeof resUuid === "object").toBe(true);
+    });
+
+    it("returns descriptive error when worker profile cannot be found during login", async () => {
+      const res = await loginUser({ usernameOrId: "NON_EXISTENT_WORKER_999", password: "wrong" });
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("Invalid Worker ID, Email, or Mobile Number. Please check your credentials.");
+    });
   });
 });

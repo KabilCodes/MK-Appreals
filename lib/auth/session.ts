@@ -1,5 +1,6 @@
 import { AuthSession, UserRole } from "@/types";
 import { store } from "@/lib/db/store";
+import { SupabaseDbService } from "@/services/supabase-db.service";
 
 const passwordResetTokens = new Map<string, { email: string; expires: number }>();
 
@@ -50,13 +51,68 @@ export async function loginUser(credentials: {
 
   // 2. Check for Worker Login (by Worker Email, Worker ID e.g. MK001, or mobile number)
   const workers = store.getWorkers();
-  const worker = workers.find(
+  let worker = workers.find(
     (w) =>
       (w.email && w.email.toLowerCase() === query.toLowerCase()) ||
       w.worker_id.toUpperCase() === query.toUpperCase() ||
       w.mobile === query ||
       w.full_name.toLowerCase() === query.toLowerCase()
   );
+
+  // 3. If not found in local store, check Supabase database & auth
+  if (!worker) {
+    try {
+      const client = SupabaseDbService.getClient();
+      if (client) {
+        // 3a. If query is an email, attempt Supabase Auth sign-in
+        if (query.includes("@") && credentials.password) {
+          const { data: authData, error: authErr } = await client.auth.signInWithPassword({
+            email: query,
+            password: credentials.password,
+          });
+
+          if (!authErr && authData?.user) {
+            // Check profiles table
+            const { data: profile } = await client
+              .from("profiles")
+              .select("id, role, full_name, mobile")
+              .eq("id", authData.user.id)
+              .maybeSingle();
+
+            if (profile?.role === "ADMIN") {
+              const adminSession: AuthSession = {
+                user: {
+                  id: profile.id,
+                  role: "ADMIN",
+                  name: profile.full_name || "Administrator",
+                  email: query,
+                },
+                token: `supabase-admin-${profile.id}-${Date.now()}`,
+                rememberMe: credentials.rememberMe ?? false,
+              };
+              return { success: true, session: adminSession };
+            }
+
+            // Role is WORKER: fetch worker by auth user ID (profile_id)
+            const dbWorker = await SupabaseDbService.getWorkerForAuthUser(authData.user.id, query);
+            if (dbWorker) {
+              worker = dbWorker;
+            }
+          }
+        }
+
+        // 3b. If still not found, check Supabase workers table by worker_id or mobile
+        if (!worker) {
+          const dbWorker = await SupabaseDbService.getWorkerById(query);
+          if (dbWorker) {
+            worker = dbWorker;
+          }
+        }
+      }
+    } catch {
+      // Supabase unavailable, fallback continues
+    }
+  }
 
   if (!worker) {
     return {
@@ -139,11 +195,26 @@ export async function loginWithGoogle(googleProfile: {
 
   // 2. Check if email/identity matches a pre-authorized Worker
   const workers = store.getWorkers();
-  const matchedWorker = workers.find(
+  let matchedWorker = workers.find(
     (w) =>
       (w.email && w.email.toLowerCase() === email) ||
       w.full_name.toLowerCase() === googleProfile.name.toLowerCase()
   );
+
+  // 3. Fallback: check Supabase workers and profiles
+  if (!matchedWorker) {
+    try {
+      const client = SupabaseDbService.getClient();
+      if (client) {
+        const dbWorker = await SupabaseDbService.getWorkerById(email);
+        if (dbWorker) {
+          matchedWorker = dbWorker;
+        }
+      }
+    } catch {
+      // Supabase unavailable
+    }
+  }
   if (matchedWorker) {
     if (matchedWorker.status !== "ACTIVE") {
       return {

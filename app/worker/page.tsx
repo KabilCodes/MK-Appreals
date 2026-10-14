@@ -59,12 +59,13 @@ export default function WorkerHomePage() {
 
   // 2. Error State (Section 4 & 17)
   if (error || !worker || isProfileMissing) {
+    const isMissing = isProfileMissing || !worker;
     return (
       <WorkerErrorScreen
-        title={isProfileMissing ? "Worker Profile Not Found" : "Something went wrong"}
+        title={isMissing ? "Worker Profile Not Found" : "Something went wrong"}
         message={
           error ||
-          "Worker profile could not be found. Please check your credentials or contact your supervisor."
+          "Worker profile could not be found for this account. Please check your credentials or contact your supervisor."
         }
         onRetry={refresh}
         onLogin={logout}

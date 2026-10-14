@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { AuthSession, Worker, WeeklySalary } from "@/types";
 import { store } from "@/lib/db/store";
+import { createClient } from "@/lib/supabase/client";
+import { SupabaseDbService } from "@/services/supabase-db.service";
 
 export interface WorkerSessionState {
   session: AuthSession | null;
@@ -39,7 +41,7 @@ export function useWorkerSession(): WorkerSessionState {
 
   const isMountedRef = useRef(true);
 
-  const loadData = useCallback(() => {
+  const loadData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
     try {
@@ -47,76 +49,199 @@ export function useWorkerSession(): WorkerSessionState {
       setError(null);
       setIsProfileMissing(false);
 
-      const raw = localStorage.getItem("mk_session");
-      if (!raw) {
-        // Not authenticated -> redirect to login
-        router.replace("/login");
-        return;
-      }
-
-      let parsed: AuthSession;
+      // 1. Check for active Supabase Auth user
+      const supabase = createClient();
+      let supabaseUser: { id: string; email?: string } | null = null;
       try {
-        parsed = JSON.parse(raw) as AuthSession;
+        const { data: authData } = await supabase.auth.getUser();
+        if (authData?.user) {
+          supabaseUser = authData.user;
+        }
       } catch {
-        localStorage.removeItem("mk_session");
+        // Supabase client offline or unauthenticated
+      }
+
+      // 2. Check local session storage (mk_session)
+      const raw = localStorage.getItem("mk_session");
+      let parsed: AuthSession | null = null;
+      if (raw) {
+        try {
+          parsed = JSON.parse(raw) as AuthSession;
+        } catch {
+          localStorage.removeItem("mk_session");
+        }
+      }
+
+      // 3. If user is completely unauthenticated (neither Supabase user nor local session):
+      if (!supabaseUser && (!parsed || !parsed.user)) {
         router.replace("/login");
+        // Keep isLoading true to prevent flashing error screen before navigation
         return;
       }
 
-      if (!parsed || !parsed.user) {
-        localStorage.removeItem("mk_session");
-        router.replace("/login");
-        return;
+      // 4. Role Authorization Check
+      let role: "ADMIN" | "WORKER" | null = parsed?.user?.role || null;
+      if (supabaseUser) {
+        try {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("id, role")
+            .eq("id", supabaseUser.id)
+            .maybeSingle();
+
+          if (profile?.role) {
+            role = profile.role as "ADMIN" | "WORKER";
+          }
+        } catch {
+          // Ignore profile check errors
+        }
       }
 
-      if (parsed.user.role === "ADMIN") {
+      if (role === "ADMIN") {
         router.replace("/admin");
         return;
       }
 
-      if (parsed.user.role !== "WORKER") {
+      if (role && role !== "WORKER") {
         router.replace("/login");
         return;
       }
 
-      // 1. Resolve Worker Identity from Database
-      const workerLookupId =
-        parsed.user.worker_db_id || parsed.user.worker_id || parsed.user.id;
-      let matchedWorker = store.getWorkerById(workerLookupId);
+      // 5. Resolve Worker Identity
+      let matchedWorker: Worker | null = null;
 
-      // Self-healing: If not found in current store, re-hydrate from authenticated session
-      if (!matchedWorker && parsed.user.worker_id) {
-        matchedWorker = store.ensureWorkerFromSession(parsed.user);
+      // 5a. If Supabase user exists, query by user.id (which maps to workers.profile_id)
+      if (supabaseUser) {
+        matchedWorker = await SupabaseDbService.getWorkerForAuthUser(
+          supabaseUser.id,
+          supabaseUser.email
+        );
       }
 
+      // 5b. If not found via Supabase auth, look up by session identifiers
+      if (!matchedWorker && parsed?.user) {
+        const lookupId = parsed.user.worker_db_id || parsed.user.id || parsed.user.worker_id;
+        if (lookupId) {
+          matchedWorker = await SupabaseDbService.getWorkerById(lookupId);
+        }
+      }
+
+      // 5c. Fallback to local store
       if (!matchedWorker) {
-        setIsProfileMissing(true);
-        setError("Worker profile could not be found in factory records.");
+        const lookupKey =
+          parsed?.user?.worker_db_id ||
+          parsed?.user?.worker_id ||
+          parsed?.user?.id ||
+          supabaseUser?.id;
+
+        if (lookupKey) {
+          matchedWorker = store.getWorkerById(lookupKey) || null;
+        }
+
+        // Match by email or Supabase user ID if still not found
+        if (!matchedWorker && supabaseUser?.email) {
+          const workers = store.getWorkers();
+          matchedWorker =
+            workers.find(
+              (w) =>
+                (w.email && w.email.toLowerCase() === supabaseUser!.email!.toLowerCase()) ||
+                (w.profile_id && w.profile_id === supabaseUser!.id)
+            ) || null;
+        }
+
+        // Self-healing from authenticated session
+        if (!matchedWorker && parsed?.user) {
+          matchedWorker = store.ensureWorkerFromSession(parsed.user);
+        }
+      }
+
+      // 6. Handle missing profile gracefully
+      if (!matchedWorker) {
+        if (isMountedRef.current) {
+          setIsProfileMissing(true);
+          setError("Worker profile could not be found for this account. Please check your credentials or contact your supervisor.");
+          setIsLoading(false);
+        }
         return;
       }
 
+      // 7. Check Active Status
       if (matchedWorker.status !== "ACTIVE") {
-        setError("Worker account is currently INACTIVE. Please contact floor supervisor.");
+        if (isMountedRef.current) {
+          setError("Worker account is currently INACTIVE. Please contact floor supervisor.");
+          setIsLoading(false);
+        }
         return;
       }
 
-      // 2. Resolve Operation & Effective Rate
+      // 8. Resolve Operation & Effective Rate
       const op = store.getOperationById(matchedWorker.operation_id);
-      const opName = matchedWorker.operation_name || op?.name || "General Operation";
-      const effectiveRate =
-        matchedWorker.custom_rate_override ?? op?.current_rate ?? parsed.user.current_rate ?? 0;
+      let opName = matchedWorker.operation_name || op?.name || "General Operation";
+      let opRate = op?.current_rate ?? 0;
 
-      // 3. Resolve Stats & Weekly Salary
+      if (!op && matchedWorker.operation_id) {
+        try {
+          const { data: opData } = await supabase
+            .from("operations")
+            .select("id, name, current_rate")
+            .eq("id", matchedWorker.operation_id)
+            .maybeSingle();
+
+          if (opData) {
+            opName = opData.name;
+            opRate = Number(opData.current_rate);
+          }
+        } catch {
+          // fallback
+        }
+      }
+
+      const effectiveRate =
+        matchedWorker.custom_rate_override ??
+        opRate ??
+        parsed?.user?.current_rate ??
+        0;
+
+      // Hydrate into store so synchronous services can access the worker
+      store.ensureWorkerFromSession({
+        id: matchedWorker.id,
+        worker_id: matchedWorker.worker_id,
+        name: matchedWorker.full_name,
+        email: matchedWorker.email || supabaseUser?.email,
+        operation_id: matchedWorker.operation_id,
+        operation_name: opName,
+        current_rate: effectiveRate,
+      });
+
+      // Synchronize mk_session in localStorage for consistent cross-component state
+      const activeSession: AuthSession = {
+        user: {
+          id: matchedWorker.profile_id || matchedWorker.id,
+          worker_db_id: matchedWorker.id,
+          role: "WORKER",
+          name: matchedWorker.full_name,
+          email: matchedWorker.email || supabaseUser?.email,
+          worker_id: matchedWorker.worker_id,
+          operation_id: matchedWorker.operation_id,
+          operation_name: opName,
+          current_rate: effectiveRate,
+        },
+        token: parsed?.token || `worker-token-${matchedWorker.worker_id}-${Date.now()}`,
+        rememberMe: parsed?.rememberMe ?? true,
+      };
+      localStorage.setItem("mk_session", JSON.stringify(activeSession));
+
+      // 9. Resolve Stats & Weekly Salary
       const statsList = store.getWorkersWithStats();
       const workerStats = statsList.find(
-        (w) => w.id === matchedWorker.id || w.worker_id === matchedWorker.worker_id
+        (w) => w.id === matchedWorker!.id || w.worker_id === matchedWorker!.worker_id
       );
 
       const salaries = store.getWeeklySalaries(undefined, matchedWorker.id);
       const activeSalary = salaries.length > 0 ? salaries[0] : null;
 
       if (isMountedRef.current) {
-        setSession(parsed);
+        setSession(activeSession);
         setWorker(matchedWorker);
         setOperationName(opName);
         setCurrentRate(effectiveRate);
@@ -146,7 +271,7 @@ export function useWorkerSession(): WorkerSessionState {
     isMountedRef.current = true;
     loadData();
 
-    // Safety timeout: prevent infinite loader if local storage or hydration stalls
+    // Safety timeout: prevent infinite loader if network stalls
     const timer = setTimeout(() => {
       if (isMountedRef.current) {
         setIsLoading((current) => {
@@ -157,7 +282,7 @@ export function useWorkerSession(): WorkerSessionState {
           return current;
         });
       }
-    }, 4000);
+    }, 8000);
 
     return () => {
       isMountedRef.current = false;
@@ -165,8 +290,14 @@ export function useWorkerSession(): WorkerSessionState {
     };
   }, [loadData]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     if (typeof window !== "undefined") {
+      try {
+        const supabase = createClient();
+        await supabase.auth.signOut();
+      } catch {
+        // Ignore
+      }
       localStorage.removeItem("mk_session");
       router.replace("/login");
     }
