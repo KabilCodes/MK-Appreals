@@ -68,6 +68,18 @@ class DataStore {
     }
   }
 
+  private isSeedEntry(id: string): boolean {
+    return (
+      id.startsWith("pe-kumar-curr-") ||
+      id.includes("-curr-") ||
+      id.includes("-past-") ||
+      id.includes("-hist-") ||
+      id.startsWith("ws-kumar-") ||
+      id.startsWith("al-") ||
+      id.includes("pe-prev-")
+    );
+  }
+
   private loadFromStorage(): boolean {
     if (typeof window === "undefined" || process.env.NODE_ENV === "test") return false;
     try {
@@ -78,9 +90,15 @@ class DataStore {
         if (Array.isArray(data.operations) && data.operations.length > 0) this.operations = data.operations;
         this.workers = data.workers;
         if (Array.isArray(data.rateHistory)) this.rateHistory = data.rateHistory;
-        if (Array.isArray(data.productionEntries)) this.productionEntries = data.productionEntries;
-        if (Array.isArray(data.weeklySalaries)) this.weeklySalaries = data.weeklySalaries;
-        if (Array.isArray(data.auditLogs)) this.auditLogs = data.auditLogs;
+        if (Array.isArray(data.productionEntries)) {
+          this.productionEntries = data.productionEntries.filter((e: any) => !this.isSeedEntry(e.id));
+        }
+        if (Array.isArray(data.weeklySalaries)) {
+          this.weeklySalaries = data.weeklySalaries.filter((s: any) => !this.isSeedEntry(s.id));
+        }
+        if (Array.isArray(data.auditLogs)) {
+          this.auditLogs = data.auditLogs.filter((a: any) => !a.id.startsWith("al-"));
+        }
         if (Array.isArray(data.admins) && data.admins.length > 0) this.admins = data.admins;
         if (Array.isArray(data.correctionRequests)) this.correctionRequests = data.correctionRequests;
         if (Array.isArray(data.notifications)) this.notifications = data.notifications;
@@ -148,26 +166,52 @@ class DataStore {
 
     const loaded = this.loadFromStorage();
     if (!loaded) {
-      if (process.env.NODE_ENV !== "test") {
-        this.workers = JSON.parse(JSON.stringify(INITIAL_WORKERS));
-        const seed = generateSeedData();
-        this.productionEntries = seed.production_entries;
-        this.weeklySalaries = seed.weekly_salaries;
-        this.auditLogs = seed.audit_logs;
-        this.correctionRequests = [];
-        this.notifications = [];
-        this.persist();
-      } else {
-        this.workers = [];
-        this.productionEntries = [];
-        this.weeklySalaries = [];
-        this.auditLogs = [];
-        this.correctionRequests = [];
-        this.notifications = [];
-      }
+      this.workers = JSON.parse(JSON.stringify(INITIAL_WORKERS));
+      this.productionEntries = [];
+      this.weeklySalaries = [];
+      this.auditLogs = [];
+      this.correctionRequests = [];
+      this.notifications = [];
+      this.persist();
     }
 
     this.initialized = true;
+  }
+
+  /**
+   * Synchronize store with live Supabase database records
+   */
+  public syncFromSupabase(data: {
+    workers?: Worker[];
+    productionEntries?: ProductionEntry[];
+    weeklySalaries?: WeeklySalary[];
+  }): void {
+    if (data.workers && data.workers.length > 0) {
+      this.workers = data.workers;
+    }
+    if (data.productionEntries !== undefined) {
+      this.productionEntries = data.productionEntries;
+    }
+    if (data.weeklySalaries !== undefined) {
+      this.weeklySalaries = data.weeklySalaries;
+    }
+    this.persist();
+  }
+
+  public syncWorkerEntries(workerId: string, remoteEntries: ProductionEntry[]): void {
+    this.productionEntries = [
+      ...this.productionEntries.filter((e) => e.worker_id !== workerId),
+      ...remoteEntries,
+    ];
+    this.persist();
+  }
+
+  public syncWorkerSalaries(workerId: string, remoteSalaries: WeeklySalary[]): void {
+    this.weeklySalaries = [
+      ...this.weeklySalaries.filter((s) => s.worker_id !== workerId),
+      ...remoteSalaries,
+    ];
+    this.persist();
   }
 
   /**

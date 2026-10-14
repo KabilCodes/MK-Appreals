@@ -85,7 +85,7 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
         <div className="max-h-96 overflow-y-auto p-2">
           {query.trim().length === 0 ? (
             <div className="py-8 text-center text-xs text-slate-500">
-              Type a worker name, worker ID (e.g. MK001), operation (e.g. Overlock), or week to search.
+              Type a worker name, worker ID, operation, or week to search.
             </div>
           ) : results.length === 0 ? (
             <div className="py-8 text-center text-xs text-slate-500">

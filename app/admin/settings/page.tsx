@@ -412,7 +412,7 @@ export default function AdminSettingsPage() {
               required
               value={newAdminName}
               onChange={(e) => setNewAdminName(e.target.value)}
-              placeholder="e.g. Ramesh"
+              placeholder="Full Name"
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#0B1F33]"
             />
           </div>
@@ -426,7 +426,7 @@ export default function AdminSettingsPage() {
               required
               value={newAdminEmail}
               onChange={(e) => setNewAdminEmail(e.target.value)}
-              placeholder="e.g. ramesh@mkappreals.com"
+              placeholder="admin@mkappreals.com"
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#0B1F33]"
             />
           </div>
@@ -475,7 +475,7 @@ export default function AdminSettingsPage() {
               </label>
               <input
                 type="text"
-                placeholder="e.g. Role transition / Shift re-assignment"
+                placeholder="Reason for administrative removal"
                 value={removeReason}
                 onChange={(e) => setRemoveReason(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#0B1F33]"

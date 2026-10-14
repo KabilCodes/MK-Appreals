@@ -231,7 +231,23 @@ export function useWorkerSession(): WorkerSessionState {
       };
       localStorage.setItem("mk_session", JSON.stringify(activeSession));
 
-      // 9. Resolve Stats & Weekly Salary
+      // 9. Fetch actual production entries and salaries from Supabase
+      try {
+        const [remoteEntries, remoteSalaries] = await Promise.all([
+          SupabaseDbService.getProductionEntries(matchedWorker.id),
+          SupabaseDbService.getWeeklySalaries(matchedWorker.id),
+        ]);
+        if (remoteEntries) {
+          store.syncWorkerEntries(matchedWorker.id, remoteEntries);
+        }
+        if (remoteSalaries) {
+          store.syncWorkerSalaries(matchedWorker.id, remoteSalaries);
+        }
+      } catch {
+        // Fallback to local store
+      }
+
+      // 10. Resolve Stats & Weekly Salary from actual entries
       const statsList = store.getWorkersWithStats();
       const workerStats = statsList.find(
         (w) => w.id === matchedWorker!.id || w.worker_id === matchedWorker!.worker_id

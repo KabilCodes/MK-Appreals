@@ -18,6 +18,7 @@ import { StatusBadge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
 import { store } from "@/lib/db/store";
 import { WeeklySalary, WeekRange } from "@/types";
+import { SupabaseDbService } from "@/services/supabase-db.service";
 import { formatCurrency, formatRate } from "@/lib/utils/currency";
 import { formatDateDisplay, getRecentWeeks } from "@/lib/utils/date";
 import { convertToCSV, downloadCSV } from "@/lib/utils/export";
@@ -51,6 +52,15 @@ export default function AdminWeeklySalaryPage() {
 
   useEffect(() => {
     loadWeeksAndSalaries();
+
+    SupabaseDbService.getWeeklySalaries()
+      .then((remote) => {
+        if (remote && remote.length > 0) {
+          store.syncFromSupabase({ weeklySalaries: remote });
+          loadWeeksAndSalaries();
+        }
+      })
+      .catch((err) => console.warn("[AdminSalary] Supabase sync fallback:", err));
   }, [loadWeeksAndSalaries]);
 
   const handleOpenReview = (salary: WeeklySalary) => {
@@ -404,7 +414,7 @@ export default function AdminWeeklySalaryPage() {
               </label>
               <input
                 type="text"
-                placeholder="e.g. Overtime bonus included / Perfect attendance"
+                placeholder="Reason for adjustment or settlement note"
                 value={notesInput}
                 onChange={(e) => setNotesInput(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#0B1F33]"

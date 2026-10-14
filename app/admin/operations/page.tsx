@@ -240,7 +240,7 @@ export default function AdminOperationsPage() {
             <textarea
               required
               rows={3}
-              placeholder="e.g. Annual piece rate increase approved by plant supervisor"
+              placeholder="State reason for piece rate adjustment"
               value={rateReasonInput}
               onChange={(e) => setRateReasonInput(e.target.value)}
               className="w-full rounded-xl border border-charcoal-300 bg-white p-3 text-sm text-charcoal-900 focus:outline-none focus:border-navy-900"
@@ -279,7 +279,7 @@ export default function AdminOperationsPage() {
           <Input
             label="Operation Name *"
             required
-            placeholder="e.g. Button Attach"
+            placeholder="Operation name"
             value={newOpData.name}
             onChange={(e) => setNewOpData({ ...newOpData, name: e.target.value })}
           />
@@ -288,7 +288,7 @@ export default function AdminOperationsPage() {
             <Input
               label="Operation Code *"
               required
-              placeholder="e.g. BTN"
+              placeholder="Operation code"
               value={newOpData.code}
               onChange={(e) => setNewOpData({ ...newOpData, code: e.target.value })}
             />

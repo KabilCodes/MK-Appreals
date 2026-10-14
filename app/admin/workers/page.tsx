@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { store } from "@/lib/db/store";
 import { WorkerWithStats, Operation } from "@/types";
+import { SupabaseDbService } from "@/services/supabase-db.service";
 import { formatCurrency, formatRate } from "@/lib/utils/currency";
 
 export default function AdminWorkersPage() {
@@ -67,6 +68,15 @@ export default function AdminWorkersPage() {
 
   useEffect(() => {
     loadData();
+
+    SupabaseDbService.getWorkers()
+      .then((remote) => {
+        if (remote && remote.length > 0) {
+          store.syncFromSupabase({ workers: remote });
+          loadData();
+        }
+      })
+      .catch((err) => console.warn("[AdminWorkers] Supabase sync fallback:", err));
   }, []);
 
   const filteredWorkers = useMemo(() => {
@@ -375,7 +385,7 @@ export default function AdminWorkersPage() {
             <Input
               label="Worker ID *"
               required
-              placeholder="e.g. MK006"
+              placeholder="Worker ID"
               value={formData.worker_id}
               onChange={(e) => setFormData({ ...formData, worker_id: e.target.value })}
             />
@@ -420,14 +430,14 @@ export default function AdminWorkersPage() {
             <Input
               label="Worker Email (For Portal & Google Login)"
               type="email"
-              placeholder="e.g. worker@mkappreals.com"
+              placeholder="worker@mkappreals.com"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             />
             <Input
               label="Login Password (Give Portal Access)"
               type="text"
-              placeholder="e.g. Pass@1234"
+              placeholder="Create login password"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
             />

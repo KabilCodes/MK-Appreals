@@ -56,7 +56,7 @@ export default function AdminCorrectionsPage() {
 
   const handleOpenReject = (req: CorrectionRequest) => {
     setRejectingRequest(req);
-    setRejectReason("Discrepancy with floor tally sheet");
+    setRejectReason("");
   };
 
   const handleConfirmReject = (e: React.FormEvent) => {

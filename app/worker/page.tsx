@@ -47,7 +47,7 @@ export default function WorkerHomePage() {
 
   // Add pieces modal state
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [pieceInput, setPieceInput] = useState<string>("250");
+  const [pieceInput, setPieceInput] = useState<string>("");
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastSubmittedCount, setLastSubmittedCount] = useState<number | null>(null);
@@ -116,7 +116,7 @@ export default function WorkerHomePage() {
       success(`✓ Production submitted successfully: ${parsedPieceCount} pieces.`);
       setIsConfirmOpen(false);
       setIsAddOpen(false);
-      setPieceInput("250");
+      setPieceInput("");
       refresh();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to submit pieces";

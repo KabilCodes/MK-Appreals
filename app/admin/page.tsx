@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import { StatCard } from "@/components/ui/stat-card";
 import { store } from "@/lib/db/store";
-import { DashboardMetrics, WeeklySalary, AttentionAlert } from "@/types";
+import { DashboardMetrics, WeeklySalary, AttentionAlert, Worker, ProductionEntry } from "@/types";
+import { SupabaseDbService } from "@/services/supabase-db.service";
 import { formatCurrency, formatRate } from "@/lib/utils/currency";
 import { StatusBadge } from "@/components/ui/badge";
 
@@ -26,12 +27,44 @@ export default function AdminDashboardPage() {
   const [alerts, setAlerts] = useState<AttentionAlert[]>([]);
 
   useEffect(() => {
-    const data = store.getDashboardMetrics();
-    setMetrics(data);
-    const salaries = store.getWeeklySalaries();
-    setWeeklySalaries(salaries.slice(0, 8));
-    const attentionList = store.getAttentionAlerts();
-    setAlerts(attentionList);
+    // 1. Initial store state
+    setMetrics(store.getDashboardMetrics());
+    setWeeklySalaries(store.getWeeklySalaries().slice(0, 8));
+    setAlerts(store.getAttentionAlerts());
+
+    // 2. Sync with live Supabase database
+    let isMounted = true;
+    Promise.all([
+      SupabaseDbService.getWorkers(),
+      SupabaseDbService.getProductionEntries(),
+      SupabaseDbService.getWeeklySalaries(),
+    ])
+      .then(([remoteWorkers, remoteEntries, remoteSalaries]) => {
+        if (!isMounted) return;
+        const syncPayload: {
+          workers?: Worker[];
+          productionEntries?: ProductionEntry[];
+          weeklySalaries?: WeeklySalary[];
+        } = {};
+
+        if (remoteWorkers && remoteWorkers.length > 0) syncPayload.workers = remoteWorkers;
+        if (remoteEntries !== null) syncPayload.productionEntries = remoteEntries;
+        if (remoteSalaries !== null) syncPayload.weeklySalaries = remoteSalaries;
+
+        if (Object.keys(syncPayload).length > 0) {
+          store.syncFromSupabase(syncPayload);
+          setMetrics(store.getDashboardMetrics());
+          setWeeklySalaries(store.getWeeklySalaries().slice(0, 8));
+          setAlerts(store.getAttentionAlerts());
+        }
+      })
+      .catch((err) => {
+        console.warn("[AdminDashboard] Supabase sync fallback:", err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   if (!metrics) {
@@ -279,7 +312,7 @@ export default function AdminDashboardPage() {
                 {weeklySalaries.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-6 py-12 text-center text-xs text-charcoal-400">
-                      No weekly salary records for current week. Real submissions will appear here.
+                      No weekly salary records found for the current week.
                     </td>
                   </tr>
                 ) : (

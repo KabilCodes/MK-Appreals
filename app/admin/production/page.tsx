@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { store } from "@/lib/db/store";
 import { ProductionEntry, Operation, Worker } from "@/types";
+import { SupabaseDbService } from "@/services/supabase-db.service";
 import { formatCurrency, formatRate } from "@/lib/utils/currency";
 import { formatDateDisplay } from "@/lib/utils/date";
 import { convertToCSV, downloadCSV } from "@/lib/utils/export";
@@ -33,6 +34,15 @@ export default function AdminProductionPage() {
     setEntries(store.getProductionEntries());
     setOperations(store.getOperations());
     setWorkers(store.getWorkers());
+
+    SupabaseDbService.getProductionEntries()
+      .then((remote) => {
+        if (remote && remote.length > 0) {
+          store.syncFromSupabase({ productionEntries: remote });
+          setEntries(store.getProductionEntries());
+        }
+      })
+      .catch((err) => console.warn("[AdminProduction] Supabase sync fallback:", err));
   }, []);
 
   const filteredEntries = useMemo(() => {

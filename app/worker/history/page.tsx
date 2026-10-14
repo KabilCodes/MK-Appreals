@@ -329,7 +329,7 @@ export default function WorkerHistoryPage() {
                 rows={3}
                 value={correctionReason}
                 onChange={(e) => setCorrectionReason(e.target.value)}
-                placeholder="e.g. Additional bundle approved by Line Supervisor..."
+                placeholder="State reason for piece count correction..."
                 className="w-full text-xs bg-white border border-charcoal-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-navy-900"
               />
             </div>

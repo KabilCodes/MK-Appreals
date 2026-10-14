@@ -100,7 +100,7 @@ export default function LandingPage() {
                   <input
                     type="text"
                     required
-                    placeholder="Enter Worker ID (e.g. MK001)"
+                    placeholder="Enter Worker ID"
                     value={workerInput}
                     onChange={(e) => setWorkerInput(e.target.value)}
                     className="w-full rounded-xl border border-navy-700 bg-navy-950 px-3.5 py-3 text-sm text-white placeholder-charcoal-500 focus:outline-none focus:border-gold-400 font-medium"
@@ -154,12 +154,12 @@ export default function LandingPage() {
               <div className="mt-6 space-y-3">
                 <div className="rounded-xl bg-navy-950 p-4 border border-navy-800 text-xs text-charcoal-300 space-y-2">
                   <div className="flex justify-between font-mono">
-                    <span className="text-charcoal-400">Admin Account:</span>
-                    <span className="text-white font-semibold">mkarun@gmail.com</span>
+                    <span className="text-charcoal-400">Access Level:</span>
+                    <span className="text-white font-semibold">Authorized Supervisors &amp; Admins</span>
                   </div>
                   <div className="flex justify-between font-mono">
-                    <span className="text-charcoal-400">Access Key:</span>
-                    <span className="text-gold-400">Authorized Credentials</span>
+                    <span className="text-charcoal-400">Security:</span>
+                    <span className="text-gold-400">Dual-Layer RLS Authorization</span>
                   </div>
                   <div className="flex justify-between font-mono">
                     <span className="text-charcoal-400">Auditing:</span>
